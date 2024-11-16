@@ -1,0 +1,635 @@
+---
+title: "ACST8095 Assignment"
+author: "Name: Ngoc Tuyet Trinh"
+date: "Date: 2024-10-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+To ensure the reproducibility, first clear the current environment and add set.seed (10)
+
+```{r}
+rm(list = ls())
+set.seed(10)
+```
+
+Question a)
+
+First, I load the required library and import the dataset 
+
+```{r}
+library(readr)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(caret)
+Assg <- read_csv("CaseStudyData.csv")
+```
+
+There are 180000 values and 7 columns.Gender is a categorical variable. Some basic statistics are provided:
+
+```{r}
+str(Assg)
+summary(Assg)
+```
+
+There is no missing value
+
+```{r}
+sapply(Assg, function(x) sum(is.na(x)))
+```
+
+Plot histogram for the numerical attributes
+
+```{r}
+par(mfrow = c(2,2))
+hist(Assg$exposure, main = "Distribution of Exposure", xlab = "Exposure", col = "skyblue")
+hist(Assg$distance, main = "Distribution of Distance", xlab = "Distance", col = "green")
+hist(Assg$weight, main = "Distribution of Weight", xlab = "Weight", col = "yellow")
+hist(Assg$age, main = "Distribution of Age", xlab = "Age", col = "orange")
+```
+
+Plot pie chart for categorical attribute "gender"
+
+```{r}
+par(mfrow = c(1, 1))
+Assg$gender <- as.factor(Assg$gender)
+gender_plot <- as.data.frame(table(Assg$gender))
+colnames(gender_plot) <- c("Gender", "Frequency")
+gender_plot$Percentage <- round((gender_plot$Frequency / sum(gender_plot$Frequency)) * 100, 1)
+ggplot(gender_plot, aes(x = "", y = Frequency, fill = Gender)) +
+  geom_bar(width = 1, stat = "identity") +  
+  coord_polar("y") +  
+  labs(title = "Gender Distribution") +  
+  theme_void() + 
+  geom_text(aes(label = paste0(Percentage, "%")), 
+            position = position_stack(vjust = 0.5)) +
+  scale_fill_manual(values = c("female" = "lightpink", "male" = "lightblue")) +
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+Question b)
+
+First, I fit the glm() for ln(λ) considering all the linear terms, quadratic terms (excluding x5) and mixed terms (excluding x5) as required in the question.
+
+```{r}
+model <- glm(Counts ~ weight + distance + age + carage + gender+
+              I(weight^2) + I(distance^2) + I(age^2) + I(carage^2)+
+              weight*distance + weight*age + weight*carage +
+              distance*age + distance*carage + 
+              age*carage,
+              data = Assg, family = poisson(), offset = log(exposure))
+summary(model)
+```
+
+I conduct backward selection method via step() to select the best model
+
+```{r}
+set.seed(10)
+model_new<- step(model, direction ="backward", trace = 0)
+model_new
+```
+
+Given the benchmark, the λ = 0.01716377 
+
+```{r}
+lambda<-predict(model_new, list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male", exposure = 1), type="response")
+lambda
+```
+
+Plotting λ vs age (x3)
+
+```{r}
+xage<-seq(min(Assg$age),max(Assg$age),0.5)
+y<-predict(model_new, list(age=xage,
+                                 weight=rep(1500,length(xage)),
+                                 distance=rep(15,length(xage)),
+                                 carage=rep(4,length(xage)),
+                                 gender=rep("male",length(xage)),
+                                 exposure=rep(1,length(xage))), type="response")
+
+plot(xage,y,type = "l",main = "Intensity versus Age", xlab="age",ylab="intensity", col = "darkblue",lwd = 2)
+```
+
+Question c)
+
+Plot the Total within sum of squares versus number of clusters. As observed, the optimal number of cluster is 4
+
+```{r}
+x <- data.frame(x3 = Assg$age, x4 = Assg$carage)
+wss <- c()
+for (i in 1:10) wss[i] <- sum(kmeans(x, i, nstart=15)$withinss)
+plot(1:10, wss, type="b", xlab="Number of Clusters", ylab="Total within groups sum of squares")
+```
+
+Assign the cluster label to the dataset
+
+```{r}
+x3x4 <- kmeans(x,4,nstart = 15)
+Assg$cluster <- as.factor(x3x4$cluster)
+```
+
+Plot 
+
+```{r}
+plot(x,col=Assg$cluster,cex = 1.5,pch = 20, xlab = "x3", ylab = "x4",
+     main = "K-means Clustering with K = 4", font.main = 2)
+```
+
+Question d)
+
+Fit the glm() for ln(λ) considering all the linear and mixed terms
+
+```{r}
+model2 <- glm(Counts ~ weight + distance + age + carage + gender + cluster + 
+                    weight:distance + weight:age + weight*carage + weight*gender + weight*cluster +
+                    distance*age + distance*carage + distance*gender + distance*cluster +
+                    age*carage + age*gender + age*cluster +
+                    carage*gender + carage*cluster +
+                    gender*cluster,
+                  data = Assg, family = poisson(),offset = log(exposure))
+summary(model2)
+```
+
+Perform backward selection method to select the best model
+
+```{r}
+model_new2<- step(model2, direction ="backward", trace = 0)
+model_new2
+```
+
+Given benchmark in b), For cluster 1, λ = 0.08902562 
+
+```{r}
+lambda2_1<-predict(model_new2, list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male",cluster = "1", exposure = 1), type="response")
+lambda2_1
+```
+
+Given benchmark in b), For cluster 2, λ = 0.03799512
+
+```{r}
+lambda2_2<-predict(model_new2, list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male",cluster = "2", exposure = 1), type="response")
+lambda2_2
+```
+
+Given benchmark in b), For cluster 3, λ = 0.1247772 
+
+```{r}
+lambda2_3<-predict(model_new2, list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male",cluster = "3", exposure = 1), type="response")
+lambda2_3
+```
+
+Given benchmark in b), For cluster 4, λ = 0.09256919
+
+```{r}
+lambda2_4<-predict(model_new2, list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male",cluster = "4", exposure = 1), type="response")
+lambda2_4
+```
+
+
+Plotting λ vs age (x3) for each cluster
+
+```{r}
+par(mfrow = c(2, 2))
+y_1<-predict(model_new2, list(age=xage,
+                               weight=rep(1500,length(xage)),
+                               distance=rep(15,length(xage)),
+                               carage=rep(4,length(xage)),
+                               gender=rep("male",length(xage)),
+                               cluster=rep("1",length(xage)),
+                               exposure=rep(1,length(xage))), type="response")
+plot(xage,y_1,type = "l",main = "Intensity versus Age For Cluster 1", xlab="age",ylab="intensity", col = "red",lwd = 2)
+
+y_2<-predict(model_new2, list(age=xage,
+                               weight=rep(1500,length(xage)),
+                               distance=rep(15,length(xage)),
+                               carage=rep(4,length(xage)),
+                               gender=rep("male",length(xage)),
+                               cluster=rep("2",length(xage)),
+                               exposure=rep(1,length(xage))),
+                               type="response")
+plot(xage,y_2,type = "l",main = "Intensity versus Age For Cluster 2", xlab="age",ylab="intensity", col = "green",lwd = 2)
+
+y_3<-predict(model_new2, list(age=xage,
+                               weight=rep(1500,length(xage)),
+                               distance=rep(15,length(xage)),
+                               carage=rep(4,length(xage)),
+                               gender=rep("male",length(xage)),
+                               cluster=rep("3",length(xage)),
+                               exposure=rep(1,length(xage))),
+                               type="response")
+plot(xage,y_3,type = "l",main = "Intensity versus Age For Cluster 3", xlab="age",ylab="intensity", col = "orange",lwd = 2)
+
+y_4<-predict(model_new2, list(age=xage,
+                               weight=rep(1500,length(xage)),
+                               distance=rep(15,length(xage)),
+                               carage=rep(4,length(xage)),
+                               gender=rep("male",length(xage)),
+                               cluster=rep("4",length(xage)),
+                               exposure=rep(1,length(xage))),
+                               type="response")
+plot(xage,y_4,type = "l",main = "Intensity versus Age For Cluster 4", xlab="age",ylab="intensity", col = "purple",lwd = 2)
+```
+
+
+Question e)
+
+Fit a Poisson Regression Tree without x6
+
+```{r}
+Reg_T<- rpart(cbind(exposure,Counts)~ 
+                            weight+distance+age+carage+gender,
+                            data=Assg,
+                            method="poisson")
+```
+
+Find the optimal cp
+
+```{r}
+cp.select <- function(tree){
+  min.x <- which.min(tree$cp[, 4])
+  for(i in 1:nrow(tree$cp)){
+    if(tree$cp[i, 4] < tree$cp[min.x, 4] 
+       + tree$cp[min.x, 5]){
+      return(tree$cp[i, 1])
+    }
+  }
+}
+cp.best <-cp.select(Reg_T)
+cp.best
+```
+
+Prune and Plot - The optimal size of tree is 2 with 3 leaves
+
+```{r}
+prune <- prune(Reg_T, cp=cp.best)
+rpart.plot(prune)
+```
+
+As a benchmark, λ = 0.0395817 
+
+```{r}
+lambda_Prune <- predict(prune,list(weight = 1500, distance = 15, age = 25, carage = 4, gender ="male",exposure = 1), type = "vector")
+lambda_Prune
+```
+
+Plot λ versus x3 (age), exposure = 1
+
+```{r}
+xage<-seq(min(Assg$age),max(Assg$age),0.5)
+y_prune<-predict(prune,list(age=xage,
+                               weight=rep(1500,length(xage)),
+                               distance=rep(15,length(xage)),
+                               carage=rep(4,length(xage)),
+                               gender=rep("male",length(xage)),
+                               exposure=rep(1,length(xage)),
+                               type ="vector"))
+plot(xage,y_prune,main = "Intensity versus Age", xlab="age",ylab="intensity", col = "darkgreen",lwd = 2)
+```
+
+Question f)
+
+Split 90% into train dataset, 10% is validation dataset
+
+```{r}
+set.seed(10)
+split <- sample(c(1:nrow(Assg)),0.9 * nrow(Assg), replace = FALSE)
+train <- Assg[split, ]
+val <- Assg[-split, ]
+```
+
+Initialize λ(1) = 1, first I define a potential range for K - no of boosting step, max_depth - size of tree, shrinkage - shrinkage parameter.
+
+```{r}
+train$fit <- train$exposure
+val$fit <- val$exposure
+K_set <- seq(20, 50, by = 10)
+max_depth_set <- 1:5                   
+shrinkage_set <- seq(0.1, 0.5, by = 0.1)   
+```
+
+Tuning hyperparameters via gridsearch	
+
+```{r}
+set.seed(10)
+# Define hyperparameter grid
+grid <- expand.grid(K = K_set,
+                    max_depth = max_depth_set,
+                    shrinkage = shrinkage_set)
+
+# Fit the model
+fit_model <- function(K, max_depth, shrinkage) {
+  
+  # Reset fit values to initial exposure before each fit for tuning
+  val$fit <- val$exposure
+  
+  for (k in 1:K) {
+    boosting_step <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                           data = train,
+                           method = "poisson",
+                           control = rpart.control(maxsurrogate = 0, maxdepth = max_depth, 
+                                                   xval = 1, cp = 0.00001, minbucket = 10000))
+    
+    val$fit <- val$fit * (predict(boosting_step, newdata = val))^shrinkage
+  }
+  
+  # Calculate validation error
+  val_error <- 2 * (sum(log((val$Counts / val$fit)^val$Counts)) - sum(val$Counts) + sum(val$fit)) / nrow(val)
+  return(val_error)
+}
+
+# Initialize best values
+best_val_error <- Inf
+best_params <- list()
+
+# Tune hyperparameters
+for (i in 1:nrow(grid)) {
+  val_error <- fit_model(grid$K[i], grid$max_depth[i], grid$shrinkage[i])
+  
+  # Choose the min val error and the corresponding parameters
+  if (val_error < best_val_error) {
+    best_val_error <- val_error
+    best_params <- grid[i, ]
+  }
+}
+
+best_params
+```
+
+As benchmark, predict λ = 0.001212091
+
+```{R}
+set.seed(10)
+benchmark <- data.frame(weight = 1500,
+                        distance = 15,
+                        age = 25,
+                        carage = 4,
+                        gender = "male",
+                        exposure = 1)
+benchmark$fit <- benchmark$exposure
+
+for (k in 1:best_params$K) {
+  boost_Reg <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                         data = train,
+                         method = "poisson",
+                         control = rpart.control(maxsurrogate = 0, maxdepth = best_params$max_depth, xval = 1,
+                                                 cp = 0.00001,
+                                                 minbucket = 10000))
+  benchmark$fit<- benchmark$fit*(predict(boost_Reg,newdata=benchmark))^best_params$shrinkage
+}
+benchmark$fit
+```
+
+Plot λ vs x3 (age)
+
+```{r}
+set.seed(10)
+plot <-  data.frame(
+  age = xage,
+  weight = rep(1500, length(xage)),
+  distance = rep(15, length(xage)),
+  carage = rep(4, length(xage)),
+  gender = rep("male", length(xage)),
+  exposure = rep(1, length(xage))
+)
+
+plot$fit <- plot$exposure
+
+for (k in 1:best_params$K) {
+  boost_Reg <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                         data = train,
+                         method = "poisson",
+                         control = rpart.control(maxsurrogate = 0, maxdepth = best_params$max_depth, xval = 1,
+                                                 cp = 0.00001,
+                                                 minbucket = 10000))
+plot$fit<- plot$fit*(predict(boost_Reg,newdata=plot))^best_params$shrinkage
+}
+
+plot(xage,plot$fit,main = "Intensity versus Age", xlab="age",ylab="intensity", col = "darkgreen",lwd = 2)
+```
+
+Question g)
+
+Since base model is GLM in b), λ(1) is from the best model fitted in b)
+
+```{r}
+train$fit_GLM <- train$exposure*predict(model_new, newdata = train, type = "response")
+val$fit_GLM <- val$exposure*predict(model_new, newdata = val, type = "response")
+```
+
+Tuning hyperparameters via gridsearch	
+
+```{r}
+set.seed(10)
+# Fit the model
+fit_GLM_model <- function(K, max_depth, shrinkage) {
+  
+  # Reset fit values to initial exposure before each fit
+  val$fit_GLM <- val$fit_GLM
+  
+  for (k in 1:K) {
+    boosting_step <- rpart(cbind(fit_GLM, Counts) ~ weight + distance + carage + age + gender,
+                           data = train,
+                           method = "poisson",
+                           control = rpart.control(maxsurrogate = 0, maxdepth = max_depth, 
+                                                   xval = 1, cp = 0.00001, minbucket = 10000))
+    
+val$fit_GLM <- val$fit_GLM*(predict(boosting_step, newdata = val))^shrinkage
+  }
+  
+  # Calculate validation error
+  val_error_GLM <- 2 * (sum(log((val$Counts / val$fit_GLM)^val$Counts)) - sum(val$Counts) + sum(val$fit_GLM)) / nrow(val)
+  return(val_error_GLM)
+}
+
+# Initialize best values
+best_val_error_GLM <- Inf
+best_params_GLM <- list()
+
+# Tune hyperparameters
+for (i in 1:nrow(grid)) {
+  val_error_GLM <- fit_model(grid$K[i], grid$max_depth[i], grid$shrinkage[i])
+  
+  # Update best parameters if current error is lower
+  if (val_error_GLM < best_val_error_GLM) {
+    best_val_error_GLM <- val_error_GLM
+    best_params_GLM <- grid[i, ]
+  }
+}
+
+best_params_GLM
+```
+
+As benchmark, predict λ = 2.080405e-05
+
+```{R}
+set.seed(10)
+benchmark$fit_GLM <- benchmark$exposure*predict(model_new, newdata = benchmark, type = "response")
+
+for (k in 1:best_params_GLM$K) {
+  boost_Reg_GLM <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                         data = train,
+                         method = "poisson",
+                         control = rpart.control(maxsurrogate = 0, maxdepth = best_params_GLM$max_depth, xval = 1,
+                                                 cp = 0.00001,
+                                                 minbucket = 10000))
+  benchmark$fit_GLM<- benchmark$fit_GLM*(predict(boost_Reg_GLM,newdata=benchmark))^best_params_GLM$shrinkage
+}
+benchmark$fit_GLM
+```
+
+Plot λ vs x3 (age)
+
+```{r}
+set.seed(10)
+
+# Lambda (1) is predicted by best model in b) based on the plot dataframe
+
+plot$fit_GLM <- plot$exposure*predict(model_new, newdata = plot, type = "response")
+
+for (k in 1:best_params_GLM$K) {
+  boost_Reg_GLM <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                         data = train,
+                         method = "poisson",
+                         control = rpart.control(maxsurrogate = 0, maxdepth = best_params_GLM$max_depth, xval = 1,
+                                                 cp = 0.00001,
+                                                 minbucket = 10000))
+plot$fit_GLM<- plot$fit_GLM*(predict(boost_Reg_GLM,newdata=plot))^best_params_GLM$shrinkage
+}
+
+plot(xage,plot$fit_GLM,main = "Intensity versus Age", xlab="age",ylab="intensity", col = "darkorange",lwd = 2)
+```
+
+Question h)
+
+Set up for 10 K-fold CV
+
+```{r}
+set.seed(10)
+# Make new dataset to avoid changing in the original dataset
+Assg1 <- Assg
+Assg1$random <- runif(nrow(Assg1))
+Assg1 <- Assg1[order(Assg1$random),]
+
+K <- 10
+Assg1$CV <- rep(1:K, length = nrow(Assg1))
+```
+
+For b) CV error = 0.05117425
+
+```{r}
+set.seed(10)
+val_error <- 0
+for (k in 1:K) {
+  Assg1.train <- Assg1[Assg1$CV != k, ]
+  Assg1.val <- Assg1[Assg1$CV == k, ]
+  
+  predictions <- predict(model_new, newdata = Assg1.val, type = "response")
+  
+  # Calculate validation error using the specified metric
+  val_error <- 2 * (sum(log((Assg1.val$Counts / predictions)^Assg1.val$Counts)) -   sum(Assg1.val$Counts) + sum(predictions)) / nrow(Assg1.val)
+}
+
+# CV error
+val_error/K
+```
+
+For d)  CV error = 0.05093664
+
+```{r}
+set.seed(10)
+val_error <- 0
+for (k in 1:K) {
+  Assg1.val <- Assg1[Assg1$CV == k, ]
+  # Predict on new dataset
+  predictions <- predict(model_new2, newdata = Assg1.val, type = "response")
+  # Calculate validation error 
+  val_error <- 2 * (sum(log((Assg1.val$Counts / predictions)^Assg1.val$Counts)) -   sum(Assg1.val$Counts) + sum(predictions)) / nrow(Assg1.val)
+}
+
+# CV error
+val_error/K
+
+```
+
+For e)  CV error = 0.0513968
+
+```{r}
+set.seed(10)
+val_error <- 0
+
+for (k in 1:K) {
+  Assg1.val <- Assg1[Assg1$CV == k, ]
+  # Predict the best model in e) on new validation dataset
+  predictions <- predict(prune, newdata = Assg1.val, type = "vector")
+  # Calculate validation error
+  val_error <- 2 * (sum(log((Assg1.val$Counts / predictions)^Assg1.val$Counts)) -  sum(Assg1.val$Counts) + sum(predictions)) / nrow(Assg1.val)
+}
+
+# CV error
+val_error/K
+
+```
+
+For f) CV error = 0.07586909
+
+```{r}
+set.seed(10)
+for (k in 1:10) {
+  Assg1.val <- Assg1[Assg1$CV == k, ]
+  
+  #The initial is same when doing tuning parameters
+  Assg1.val$fit <- Assg1.val$exposure  
+
+  # Boosting loop, use the fitted model in f) so data is still "train"
+  for (i in 1:best_params$K) {
+    boosting_step <- rpart(cbind(fit, Counts) ~ weight + distance + carage + age + gender,
+                           data = train,
+                           method = "poisson",
+                           control = rpart.control(maxsurrogate = 0, maxdepth = best_params$max_depth,   xval = 1, cp = 0.00001, minbucket = 10000))
+    
+    # Predict the best model in f) in new test set Assg1.val
+    
+    Assg1.val$fit <- Assg1.val$fit * (predict(boosting_step, newdata = Assg1.val))^best_params$shrinkage
+  }
+  # Calculate validation error of f) in new test set Assg1.val
+  val_error <- 2 * (sum(log((Assg1.val$Counts / Assg1.val$fit)^Assg1.val$Counts)) - sum(Assg1.val$Counts) + sum(Assg1.val$fit)) / nrow(Assg1.val)
+}
+
+#CV error
+val_error/K
+```
+For g) CV error = 0.05148029
+
+```{r}
+set.seed(10)
+for (k in 1:10) {
+    Assg1.train <- Assg1[Assg1$CV != k, ]
+    Assg1.val <- Assg1[Assg1$CV == k, ]
+    
+    #The initial is same when doing tuning parameters
+    Assg1.val$fit_GLM <- Assg1.val$exposure*predict(model_new, newdata = Assg1.val, type = "response")
+
+  # Boosting loop, use the fitted model in g) so data is still "train"
+  for (i in 1:best_params_GLM$K) {
+    boosting_step <- rpart(cbind(fit_GLM, Counts) ~ weight + distance + carage + age + gender,
+                           data = train,
+                           method = "poisson",
+                           control = rpart.control(maxsurrogate = 0, maxdepth = best_params_GLM$max_depth, 
+                                                   xval = 1, cp = 0.00001, minbucket = 10000))
+    
+    #Predict the best model in g) in new test set Assg1.val
+    
+    Assg1.val$fit_GLM <- Assg1.val$fit_GLM * (predict(boosting_step, newdata = Assg1.val))^best_params_GLM$shrinkage
+  }
+  
+  # Calculate validation error g) the new test set Assg1.val
+  val_error <- 2 * (sum(log((Assg1.val$Counts / Assg1.val$fit_GLM)^Assg1.val$Counts)) - sum(Assg1.val$Counts) + sum(Assg1.val$fit_GLM)) / nrow(Assg1.val)
+}
+
+ #CV error
+val_error/K
+```
